@@ -1,0 +1,59 @@
+name: kota_pf1_app
+description: "AK Park Pro"
+publish_to: 'none'
+version: 1.0.1
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  camera: ^0.10.1+1
+  dio: ^5.8.0+1
+  esc_pos_utils_plus: ^2.0.4
+  fl_chart: ^0.70.2
+  flutter:
+    sdk: flutter
+  flutter_image_compress: ^2.4.0
+  fluttertoast: ^8.2.12
+  google_fonts: ^6.2.1
+  http: ^1.4.0
+  image: ^4.5.4
+  image_picker: ^1.1.2
+  mobile_scanner: ^7.0.0
+  page_transition: ^2.2.1
+  permission_handler: ^11.4.0
+  print_bluetooth_thermal: ^1.1.6
+  provider: ^6.1.2
+  qr_code_scanner_plus: ^2.0.10+1
+  qr_flutter: ^4.1.0
+  shared_preferences: ^2.5.2
+  alprsdk_plugin:
+      path: ./alprsdk_plugin
+  audioplayers: ^5.2.1
+  package_info_plus: ^8.0.2
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.4
+  background_fetch: ^1.2.4
+  connectivity_plus: ^6.0.3
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/images/pf1-logo.png
+    - assets/images/pf1-logo_w.png
+    - assets/images/pf4-logo.png
+    - assets/images/pf4-logo_w.png
+    - assets/images/ggc-logo.png
+    - assets/images/ggc-logo_w.png
+    - assets/images/sog-logo.png
+    - assets/images/sog-logo_w.png
+    - assets/sounds/

@@ -1,0 +1,3 @@
+rootProject.name = 'alprsdk_plugin'
+include ':libfotoapparat'
+include ':libttvalpr'

@@ -1,0 +1,2 @@
+D:/AK Webs Projects/app/sogariya_app_flutter/android/app/.cxx/Debug/15u615h2/x86/CMakeFiles/edit_cache.dir
+D:/AK Webs Projects/app/sogariya_app_flutter/android/app/.cxx/Debug/15u615h2/x86/CMakeFiles/rebuild_cache.dir

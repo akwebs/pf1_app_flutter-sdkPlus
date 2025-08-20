@@ -1,0 +1,2 @@
+/Users/aniljangid/Desktop/work/sogariya_app_flutter/android/app/.cxx/Debug/5m653z58/x86/CMakeFiles/edit_cache.dir
+/Users/aniljangid/Desktop/work/sogariya_app_flutter/android/app/.cxx/Debug/5m653z58/x86/CMakeFiles/rebuild_cache.dir
