@@ -10,6 +10,7 @@
 .history
 .svn/
 .swiftpm/
+
 migrate_working_dir/
 
 # IntelliJ related
@@ -44,3 +45,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 *.zip
+
+# Ruflo / local secrets — never commit API keys
+.env
+.env.local
+.claude/
+.claude-flow/

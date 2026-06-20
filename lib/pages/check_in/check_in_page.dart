@@ -23,7 +23,8 @@ import 'package:kota_pf1_app/helpers/pref_helper.dart';
 import 'package:kota_pf1_app/helpers/toast_helper.dart';
 import 'package:kota_pf1_app/helpers/route_helper.dart';
 import 'package:kota_pf1_app/pages/login/login_page.dart';
-import 'package:kota_pf1_app/helpers/alpr_detection_controller.dart';
+import 'package:kota_pf1_app/alpr/alpr_scanner_view.dart';
+import 'package:kota_pf1_app/alpr/plate_format.dart';
 import 'package:kota_pf1_app/pages/check_in/widgets/doc_btn.dart';
 import 'package:kota_pf1_app/pages/check_in/widgets/parking_type_section.dart';
 import 'package:kota_pf1_app/pages/check_in/widgets/pass_btn.dart';
@@ -36,8 +37,6 @@ import 'package:kota_pf1_app/providers/vehicle_type_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:kota_pf1_app/pages/check_in/widgets/helmet_section.dart';
 import 'package:kota_pf1_app/providers/helmet_provider.dart';
-import 'package:alprsdk_plugin/alprsdk_plugin.dart';
-import 'package:alprsdk_plugin/alprdetection_interface.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/rendering.dart';
 import 'package:kota_pf1_app/helpers/local_db.dart';
@@ -51,7 +50,7 @@ class CheckInPage extends StatefulWidget {
   State<CheckInPage> createState() => _CheckInPageState();
 }
 
-class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInterface {
+class _CheckInPageState extends State<CheckInPage> {
   CameraController? _cameraController;
   bool _cameraLoading = false;
   final FocusNode _pageFocusNode = FocusNode();
@@ -60,21 +59,17 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
   final FocusNode _vehicleTypeFocusNode = FocusNode();
   final FocusNode _helmetFocusNode = FocusNode();
   final FocusNode _checkInBtnFocusNode = FocusNode();
-  final AlprsdkPlugin _alprsdkPlugin = AlprsdkPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  int _alprpluginState = -1;
   bool _isInitializing = false;
   bool _isRecognizing = false;
   DateTime? _lastRecognitionTime;
   String? _lastRecognizedPlate;
   bool _isStreamPaused = false;
-  dynamic _detectedPlates;
-  LocalAlprDetectionViewController? _alprViewController;
 
   @override
   void initState() {
     super.initState();
-    _initializeAlprSdk();
+    _restartAlprScan();
     _initializeAudioPlayer();
     Future.delayed(Duration.zero, () {
       if (mounted) {
@@ -298,112 +293,31 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
     }
   }
 
-  @override
-  Future<void> onAlprDetected(plates) async {
+  // Called by AlprScannerView with a confirmed, normalized plate string.
+  void _onPlateDetected(String plateNumber) {
     if (!mounted || _isStreamPaused) return;
 
-    try {
-      setState(() {
-        _detectedPlates = plates;
-      });
-
-      if (plates != null && plates.isNotEmpty) {
-        final plate = plates[0];
-        if (plate != null && plate is Map) {
-          final plateNumber = plate['number']?.toString().toUpperCase() ?? '';
-          
-          // Check if plate matches either format: AB12AB1234 or 11AB1234A
-          bool isValidFormat = RegExp(r'^[A-Z]{2}\d{2}[A-Z]{2}\d{4}$').hasMatch(plateNumber) || 
-                             RegExp(r'^\d{2}[A-Z]{2}\d{4}[A-Z]$').hasMatch(plateNumber);
-          
-          if (isValidFormat && plateNumber != _lastRecognizedPlate) {
-            if (mounted) {
-              setState(() {
-                vehicleController.text = plateNumber;
-                _lastRecognizedPlate = plateNumber;
-                _isStreamPaused = true;
-              });
-              await _playBeepSound();
-              ToastHelper.nativeToastSuccess(msg: 'Plate recognized: $plateNumber');
-              
-              // Stop the camera stream
-              await _alprViewController?.stopCamera();
-            }
-          }
-        }
-      }
-    } catch (e) {
-      print("Error in ALPR detection: $e");
-      if (mounted) {
-        ToastHelper.openErrorToast(context, 'Error processing plate detection. Please try again.');
-      }
+    final normalized = PlateFormat.normalize(plateNumber);
+    if (!PlateFormat.isValid(normalized) || normalized == _lastRecognizedPlate) {
+      return;
     }
+
+    setState(() {
+      vehicleController.text = normalized;
+      _lastRecognizedPlate = normalized;
+      _isStreamPaused = true;
+    });
+    _playBeepSound();
+    ToastHelper.nativeToastSuccess(msg: 'Plate recognized: $normalized');
   }
 
-  Future<void> _initializeAlprSdk() async {
-    if (_isInitializing) return;
-    _isInitializing = true;
-    
-    try {
-      setState(() {
-        _cameraLoading = true;
-      });
-
-      // Activate SDK with license key
-      final activationResult = await _alprsdkPlugin.setActivation(
-        "ewAyoIlsDIN24AW/1Ugr9rGv+qkGjsnzV2EPW5OPBySzdKkWhRScPdeCjS4oGynZPI2EgPjA6ump"
-        "An5iKnCHBXXjHux1yaBau6M8fSjavrdUr/GKgiJ7w7x05B6P9eQk6BJjjdtA59jjgPzR0EkaWpM6"
-        "AFoSoi4V86e1MmCne3dc3lPzMelD7tx+xpdqHdDf0zc6O3xSxEQiu7uU8Aj499FyGu1B+M22kAtU"
-        "2klrker81f3DJD+LxRLjSXAE1NDSc6erJwwwVMyJyBoCalTGHpI4ZDND6r/lVpRyJP/ghtwI6sqv"
-        "NykLwz+wdj3T2vFnZ9Z/X/9yt6SfZIPVjK0hUA==");
-      
-      if (!mounted) return;
-
-      setState(() {
-        _alprpluginState = activationResult ?? -1;
-      });
-
-      if (_alprpluginState != 0) {
-        print("ALPR SDK activation failed with state: $_alprpluginState");
-        if (mounted) {
-          ToastHelper.openErrorToast(context, 'ALPR SDK activation failed. Please restart the app.');
-        }
-        return;
-      }
-
-      // Initialize SDK after successful activation
-      final initResult = await _alprsdkPlugin.init();
-      if (!mounted) return;
-
-      setState(() {
-        _alprpluginState = initResult ?? -1;
-      });
-
-      if (_alprpluginState != 0) {
-        print("ALPR SDK initialization failed with state: $_alprpluginState");
-        if (mounted) {
-          ToastHelper.openErrorToast(context, 'ALPR SDK initialization failed. Please restart the app.');
-        }
-        return;
-      }
-
-      // Create new camera view after successful initialization
-      if (mounted) {
-        _onPlatformViewCreated(DateTime.now().millisecondsSinceEpoch);
-      }
-    } catch (e) {
-      print("ALPR SDK initialization error: $e");
-      if (mounted) {
-        ToastHelper.openErrorToast(context, 'ALPR SDK initialization error. Please restart the app.');
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isInitializing = false;
-          _cameraLoading = false;
-        });
-      }
-    }
+  // Re-arms the scanner so it can recognize a new plate (clears dedup state).
+  void _restartAlprScan() {
+    if (!mounted) return;
+    setState(() {
+      _lastRecognizedPlate = null;
+      _isStreamPaused = false;
+    });
   }
 
   Future<void> _resetAndReinitializePage() async {
@@ -415,10 +329,6 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
         _isInitializing = true;
       });
 
-      // Stop and dispose current camera
-      await _alprViewController?.stopCamera();
-      _alprViewController = null;
-      
       // Reset all states and providers
       context.read<SlotProvider>().resetSlot();
       context.read<VehicleTypeProvider>().resetSelectedVehicleType();
@@ -433,7 +343,6 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
       // Reset ALPR states
       _lastRecognizedPlate = null;
       _isStreamPaused = false;
-      _detectedPlates = null;
       
       // Reload vehicle types
       await context.read<VehicleTypeProvider>().loadVehicleTypes(context);
@@ -441,8 +350,8 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
       // Wait for reset to complete
       await Future.delayed(Duration(milliseconds: 500));
       
-      // Reinitialize ALPR SDK
-      await _initializeAlprSdk();
+      // Re-arm the scanner
+      _restartAlprScan();
       
     } catch (e) {
       print("Error during page reset: $e");
@@ -455,19 +364,6 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
           _cameraLoading = false;
           _isInitializing = false;
         });
-      }
-    }
-  }
-
-  void _onPlatformViewCreated(int id) async {
-    try {
-      _alprViewController = LocalAlprDetectionViewController(id, this);
-      await _alprViewController?.initHandler();
-      await _alprViewController?.startCamera(0); // 0 for back camera
-    } catch (e) {
-      print("Error in platform view creation: $e");
-      if (mounted) {
-        ToastHelper.openErrorToast(context, 'Failed to initialize camera view. Please try again.');
       }
     }
   }
@@ -486,7 +382,6 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
 
   @override
   void dispose() {
-    _alprViewController?.stopCamera();
     _audioPlayer.dispose();
     _cancelToken.cancel(StrConstants.dioDisposal);
     _pageFocusNode.dispose();
@@ -502,7 +397,7 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
     if (event is RawKeyDownEvent) {
       // Function key shortcuts
       if (event.logicalKey == LogicalKeyboardKey.f1) {
-        _initializeAlprSdk();
+        _restartAlprScan();
       } else if (event.logicalKey == LogicalKeyboardKey.f2) {
         _vehicleInputFocusNode.requestFocus();
       } else if (event.logicalKey == LogicalKeyboardKey.f3) {
@@ -629,16 +524,6 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
           ),
         ],
       ),
-    );
-  }
-
-  // Add this method to build the plate overlay
-  Widget _buildPlateOverlay() {
-    if (_detectedPlates == null) return Container();
-
-    return CustomPaint(
-      painter: PlatePainter(plates: _detectedPlates),
-      child: Container(),
     );
   }
 
@@ -802,17 +687,7 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
                           borderRadius: BorderRadius.circular(6),
                           child: Stack(
                             children: [
-                              if (defaultTargetPlatform == TargetPlatform.android)
-                                AndroidView(
-                                  viewType: 'facedetectionview',
-                                  onPlatformViewCreated: _onPlatformViewCreated,
-                                )
-                              else
-                                UiKitView(
-                                  viewType: 'facedetectionview',
-                                  onPlatformViewCreated: _onPlatformViewCreated,
-                                ),
-                              _buildPlateOverlay(),
+                              AlprScannerView(onPlateDetected: _onPlateDetected),
                               // Scan area overlay
                               Center(
                                 child: Container(
@@ -931,7 +806,7 @@ class _CheckInPageState extends State<CheckInPage> implements AlprDetectionInter
             VehicleNumberInput(
               vehicleController: vehicleController,
               showCameraPreview: _cameraLoading,
-              onCameraPress: _initializeAlprSdk,
+              onCameraPress: _restartAlprScan,
               onCheckIn: () {
                 if (!loaderController.loading) {
                   handleCheckInClick();
@@ -2122,87 +1997,3 @@ class HelmetSection extends StatelessWidget {
   }
 }
 
-class PlatePainter extends CustomPainter {
-  final dynamic plates;
-  
-  PlatePainter({required this.plates});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (plates == null) return;
-
-    var paint = Paint()
-      ..color = Colors.green
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-
-    for (var plate in plates) {
-      // Original frame size from camera
-      final frameWidth = plate['frameWidth']?.toDouble() ?? size.width;
-      final frameHeight = plate['frameHeight']?.toDouble() ?? size.height;
-
-      // Scale to fit height
-      final scale = size.height / frameHeight;
-
-      final scaledFrameWidth = frameWidth * scale;
-      final offsetX = (size.width - scaledFrameWidth) / 2;
-      final offsetY = 0.0;
-
-      // Plate coordinates
-      final x1 = plate['x1']?.toDouble() ?? 0;
-      final y1 = plate['y1']?.toDouble() ?? 0;
-      final x2 = plate['x2']?.toDouble() ?? 0;
-      final y2 = plate['y2']?.toDouble() ?? 0;
-
-      // Apply scale and offset
-      final drawX1 = x1 * scale + offsetX;
-      final drawY1 = y1 * scale + offsetY;
-      final drawX2 = x2 * scale + offsetX;
-      final drawY2 = y2 * scale + offsetY;
-
-      final title = plate['number']?.toString() ?? '';
-
-      // Draw label
-      final span = TextSpan(
-        style: TextStyle(color: Colors.green, fontSize: 20),
-        text: title
-      );
-      final tp = TextPainter(
-        text: span,
-        textAlign: TextAlign.left,
-        textDirection: TextDirection.ltr
-      );
-      tp.layout();
-      tp.paint(canvas, Offset(drawX1 + 10, drawY1 - 30));
-
-      // Draw rectangle
-      final rect = Rect.fromPoints(
-        Offset(drawX1, drawY1),
-        Offset(drawX2, drawY2)
-      );
-      canvas.drawRect(rect, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
-}
-
-class _BuildPlateOverlay extends StatefulWidget {
-  final dynamic plates;
-
-  const _BuildPlateOverlay({Key? key, required this.plates}) : super(key: key);
-
-  @override
-  State<_BuildPlateOverlay> createState() => _BuildPlateOverlayState();
-}
-
-class _BuildPlateOverlayState extends State<_BuildPlateOverlay> {
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: PlatePainter(plates: widget.plates),
-      child: Container(),
-    );
-  }
-}

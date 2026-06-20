@@ -23,8 +23,8 @@ import 'package:kota_pf1_app/helpers/date_time_helper.dart';
 import 'package:kota_pf1_app/helpers/toast_helper.dart';
 import 'package:kota_pf1_app/pages/check_in/widgets/doc_btn.dart';
 import 'package:kota_pf1_app/providers/checkin_provider.dart';
-import 'package:alprsdk_plugin/alprsdk_plugin.dart';
-import 'package:alprsdk_plugin/alprdetection_interface.dart';
+import 'package:kota_pf1_app/alpr/alpr_scanner_view.dart';
+import 'package:kota_pf1_app/alpr/plate_format.dart';
 import 'package:kota_pf1_app/helpers/local_db.dart';
 import 'package:kota_pf1_app/pages/login/login_page.dart';
 import 'package:kota_pf1_app/helpers/print_templates.dart';
@@ -38,7 +38,7 @@ class CheckOutPage extends StatefulWidget {
   State<CheckOutPage> createState() => _CheckOutPageState();
 }
 
-class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInterface {
+class _CheckOutPageState extends State<CheckOutPage> {
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
   Barcode? scanResult;
   QRViewController? controller;
@@ -48,23 +48,19 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
   final CancelToken _cancelToken = CancelToken();
   final loaderController = LoaderController(loading: false);
   Map printData = {};
-  final AlprsdkPlugin _alprsdkPlugin = AlprsdkPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  int _alprpluginState = -1;
   bool _isInitializing = false;
   bool _isRecognizing = false;
   DateTime? _lastRecognitionTime;
   String? _lastRecognizedPlate;
   bool _isStreamPaused = false;
-  dynamic _detectedPlates;
-  AlprDetectionViewController? _alprViewController;
   bool _showAlprView = false;
   bool _cameraLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeAlprSdk();
+    _restartAlprScan();
     _initializeAudioPlayer();
     Future.delayed(Duration.zero, () {
       if (mounted) {
@@ -109,61 +105,13 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
     });
   }
 
-  Future<void> _initializeAlprSdk() async {
-    if (_isInitializing) return;
-    _isInitializing = true;
-    
-    try {
-      // Activate SDK with license key
-      final activationResult = await _alprsdkPlugin.setActivation(
-        "ewAyoIlsDIN24AW/1Ugr9rGv+qkGjsnzV2EPW5OPBySzdKkWhRScPdeCjS4oGynZPI2EgPjA6ump"
-        "An5iKnCHBXXjHux1yaBau6M8fSjavrdUr/GKgiJ7w7x05B6P9eQk6BJjjdtA59jjgPzR0EkaWpM6"
-        "AFoSoi4V86e1MmCne3dc3lPzMelD7tx+xpdqHdDf0zc6O3xSxEQiu7uU8Aj499FyGu1B+M22kAtU"
-        "2klrker81f3DJD+LxRLjSXAE1NDSc6erJwwwVMyJyBoCalTGHpI4ZDND6r/lVpRyJP/ghtwI6sqv"
-        "NykLwz+wdj3T2vFnZ9Z/X/9yt6SfZIPVjK0hUA==");
-      
-      if (mounted) {
-        setState(() {
-          _alprpluginState = activationResult ?? -1;
-        });
-      }
-
-      if (_alprpluginState != 0) {
-        print("ALPR SDK activation failed with state: $_alprpluginState");
-        if (mounted) {
-          ToastHelper.openErrorToast(context, 'ALPR SDK activation failed. Please restart the app.');
-        }
-        return;
-      }
-
-      // Initialize SDK after successful activation
-      final initResult = await _alprsdkPlugin.init();
-      if (mounted) {
-        setState(() {
-          _alprpluginState = initResult ?? -1;
-        });
-      }
-
-      if (_alprpluginState != 0) {
-        print("ALPR SDK initialization failed with state: $_alprpluginState");
-        if (mounted) {
-          ToastHelper.openErrorToast(context, 'ALPR SDK initialization failed. Please restart the app.');
-        }
-      }
-    } catch (e) {
-      print("ALPR SDK initialization error: $e");
-      if (mounted) {
-        ToastHelper.openErrorToast(context, 'ALPR SDK initialization error. Please restart the app.');
-      }
-    } finally {
-      _isInitializing = false;
-    }
-  }
-
-  void _onPlatformViewCreated(int id) async {
-    _alprViewController = AlprDetectionViewController(id, this);
-    await _alprViewController?.initHandler();
-    await _alprViewController?.startCamera(0); // 0 for back camera
+  // Re-arms the scanner so it can recognize a new plate (clears dedup state).
+  void _restartAlprScan() {
+    if (!mounted) return;
+    setState(() {
+      _lastRecognizedPlate = null;
+      _isStreamPaused = false;
+    });
   }
 
   Future<void> _initializeAudioPlayer() async {
@@ -178,51 +126,26 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
     }
   }
 
-  @override
-  Future<void> onAlprDetected(plates) async {
+  // Called by AlprScannerView with a confirmed, normalized plate string.
+  Future<void> _onPlateDetected(String plateNumber) async {
     if (!mounted || _isStreamPaused) return;
 
-    try {
-      setState(() {
-        _detectedPlates = plates;
-      });
-
-      if (plates != null && plates.isNotEmpty) {
-        final plate = plates[0];
-        if (plate != null && plate is Map) {
-          final plateNumber = plate['number']?.toString().toUpperCase() ?? '';
-          
-          bool isValidFormat = RegExp(r'^[A-Z]{2}\d{2}[A-Z]{2}\d{4}$').hasMatch(plateNumber) || 
-                             RegExp(r'^\d{2}[A-Z]{2}\d{4}[A-Z]$').hasMatch(plateNumber);
-          
-          if (isValidFormat && plateNumber != _lastRecognizedPlate) {
-            if (mounted) {
-              setState(() {
-                vehicleNumberController.text = plateNumber;
-                _lastRecognizedPlate = plateNumber;
-                _isStreamPaused = true;
-              });
-              await _playBeepSound();
-              ToastHelper.nativeToastSuccess(msg: 'Plate recognized: $plateNumber');
-              
-              // Stop the camera stream
-              await _alprViewController?.stopCamera();
-              setState(() {
-                _showAlprView = false;
-              });
-              
-              // Process the scan and handle checkout
-              await handleCheckOutClick();
-            }
-          }
-        }
-      }
-    } catch (e) {
-      print("Error in ALPR detection: $e");
-      if (mounted) {
-        ToastHelper.openErrorToast(context, 'Error processing plate detection. Please try again.');
-      }
+    final normalized = PlateFormat.normalize(plateNumber);
+    if (!PlateFormat.isValid(normalized) || normalized == _lastRecognizedPlate) {
+      return;
     }
+
+    setState(() {
+      vehicleNumberController.text = normalized;
+      _lastRecognizedPlate = normalized;
+      _isStreamPaused = true;
+      _showAlprView = false;
+    });
+    await _playBeepSound();
+    ToastHelper.nativeToastSuccess(msg: 'Plate recognized: $normalized');
+
+    // Process the scan and handle checkout
+    await handleCheckOutClick();
   }
 
   // Add this method to handle vehicle number input changes
@@ -239,15 +162,6 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
     }
   }
 
-  // Add this method to build the plate overlay
-  Widget _buildPlateOverlay() {
-    if (_detectedPlates == null) return Container();
-
-    return CustomPaint(
-      painter: PlatePainter(plates: _detectedPlates),
-      child: Container(),
-    );
-  }
 
   // Header similar to Check-In UI
   Widget _buildHeader() {
@@ -374,17 +288,7 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
                           else
                             Stack(
                               children: [
-                                if (defaultTargetPlatform == TargetPlatform.android)
-                                  AndroidView(
-                                    viewType: 'facedetectionview',
-                                    onPlatformViewCreated: _onPlatformViewCreated,
-                                  )
-                                else
-                                  UiKitView(
-                                    viewType: 'facedetectionview',
-                                    onPlatformViewCreated: _onPlatformViewCreated,
-                                  ),
-                                _buildPlateOverlay(),
+                                AlprScannerView(onPlateDetected: _onPlateDetected),
                                 Center(
                                   child: Container(
                                     width: MediaQuery.of(context).size.width * 0.8,
@@ -626,7 +530,6 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
   void dispose() {
     _cancelToken.cancel(StrConstants.dioDisposal);
     controller?.dispose();
-    _alprViewController?.stopCamera();
     vehicleNumberController.dispose();
     _audioPlayer.dispose();
     super.dispose();
@@ -741,10 +644,6 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
         _isInitializing = true;
       });
 
-      // Stop and dispose current camera
-      await _alprViewController?.stopCamera();
-      _alprViewController = null;
-      
       // Reset all states and providers
       context.read<CheckInProvider>().resetImages();
       setState(() {
@@ -752,14 +651,13 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
         isProcessing = false;
         _lastRecognizedPlate = null;
         _isStreamPaused = false;
-        _detectedPlates = null;
       });
-      
+
       // Wait for reset to complete
       await Future.delayed(Duration(milliseconds: 500));
-      
-      // Reinitialize ALPR SDK
-      await _initializeAlprSdk();
+
+      // Re-arm the scanner
+      _restartAlprScan();
       
     } catch (e) {
       print("Error during page reset: $e");
@@ -982,12 +880,9 @@ class _CheckOutPageState extends State<CheckOutPage> implements AlprDetectionInt
       if (_showAlprView) {
         // Switching to ALPR mode
         await controller?.pauseCamera();
-        if (_alprpluginState != 0) {
-          await _initializeAlprSdk();
-        }
+        _restartAlprScan();
       } else {
         // Switching to QR mode
-        await _alprViewController?.stopCamera();
         await controller?.resumeCamera();
       }
     } catch (e) {
@@ -1330,71 +1225,6 @@ class _VehicleNumberInputState extends State<VehicleNumberInput> {
   }
 }
 
-class PlatePainter extends CustomPainter {
-  final dynamic plates;
-  
-  PlatePainter({required this.plates});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (plates == null) return;
-
-    var paint = Paint()
-      ..color = Colors.green
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-
-    for (var plate in plates) {
-      // Original frame size from camera
-      final frameWidth = plate['frameWidth']?.toDouble() ?? size.width;
-      final frameHeight = plate['frameHeight']?.toDouble() ?? size.height;
-
-      // Scale to fit height
-      final scale = size.height / frameHeight;
-
-      final scaledFrameWidth = frameWidth * scale;
-      final offsetX = (size.width - scaledFrameWidth) / 2;
-      final offsetY = 0.0;
-
-      // Plate coordinates
-      final x1 = plate['x1']?.toDouble() ?? 0;
-      final y1 = plate['y1']?.toDouble() ?? 0;
-      final x2 = plate['x2']?.toDouble() ?? 0;
-      final y2 = plate['y2']?.toDouble() ?? 0;
-
-      // Apply scale and offset
-      final drawX1 = x1 * scale + offsetX;
-      final drawY1 = y1 * scale + offsetY;
-      final drawX2 = x2 * scale + offsetX;
-      final drawY2 = y2 * scale + offsetY;
-
-      final title = plate['number']?.toString() ?? '';
-
-      // Draw label
-      final span = TextSpan(
-        style: TextStyle(color: Colors.green, fontSize: 20),
-        text: title
-      );
-      final tp = TextPainter(
-        text: span,
-        textAlign: TextAlign.left,
-        textDirection: TextDirection.ltr
-      );
-      tp.layout();
-      tp.paint(canvas, Offset(drawX1 + 10, drawY1 - 30));
-
-      // Draw rectangle
-      final rect = Rect.fromPoints(
-        Offset(drawX1, drawY1),
-        Offset(drawX2, drawY2)
-      );
-      canvas.drawRect(rect, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
-}
 
 // class QrSection extends StatelessWidget {
 //   const QrSection({

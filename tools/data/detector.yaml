@@ -1,0 +1,15 @@
+# YOLOv8 dataset config for the LICENSE-PLATE DETECTOR.
+#
+# Fill `path` with the root of a YOLO-format dataset (images/ + labels/ with one
+# class: the plate box). Good free sources (export in "YOLOv8" format):
+#   - Roboflow Universe: search "license plate" / "ANPR" (Indian sets exist)
+#   - Kaggle: "Car License Plate Detection", "Indian Vehicle Number Plate"
+#
+# A YOLO label line is: `0 cx cy w h` (normalized 0..1), class 0 = plate.
+
+path: ./datasets/plate_detector # dataset root (override with --data path)
+train: images/train
+val: images/val
+
+names:
+  0: plate

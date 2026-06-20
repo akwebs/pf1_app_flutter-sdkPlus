@@ -1,0 +1,14 @@
+# ALPR model training + TFLite export (Phase 4)
+# Tested with Python 3.10/3.11 (Google Colab works out of the box).
+
+ultralytics>=8.3.0
+
+# TFLite export toolchain pulled in by `yolo export format=tflite`.
+# Ultralytics will auto-install these on first export, but pinning them here
+# makes a fresh Colab/venv reproducible.
+tensorflow>=2.15.0
+onnx>=1.16.0
+onnx2tf>=1.22.0
+onnxslim>=0.1.34
+onnxruntime>=1.17.0
+sng4onnx>=1.0.1
