@@ -51,3 +51,9 @@ app.*.map.json
 .env.local
 .claude/
 .claude-flow/
+
+# ALPR training datasets (large; not for git)
+tools/datasets/
+tools/data/*_resolved.yaml
+tools/runs/
+runs/

@@ -36,6 +36,27 @@ TASKS = {
 }
 
 
+def _resolve_dataset_path(yaml_path: Path) -> Path:
+    """Rewrite a relative dataset `path:` to absolute.
+
+    Ultralytics resolves a relative `path:` against its configured
+    `datasets_dir`, not the YAML location or the cwd — a frequent source of
+    "dataset not found". Making it absolute (relative to the YAML file) sidesteps
+    that and works identically on a laptop or Colab. Returns the YAML to train
+    with (a patched copy when rewriting was needed).
+    """
+    import yaml
+
+    cfg = yaml.safe_load(yaml_path.read_text())
+    raw = Path(str(cfg.get("path", ".")))
+    if raw.is_absolute():
+        return yaml_path
+    cfg["path"] = str((yaml_path.parent / raw).resolve())
+    patched = yaml_path.parent / f".{yaml_path.stem}_resolved.yaml"
+    patched.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    return patched
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -67,6 +88,7 @@ def main() -> None:
     # Imported lazily so `--help` and the check above work without heavy deps.
     from ultralytics import YOLO
 
+    data = _resolve_dataset_path(data)
     print(f"[train] task={args.task} model={args.model} data={data} imgsz={imgsz} "
           f"epochs={args.epochs} batch={args.batch}")
 

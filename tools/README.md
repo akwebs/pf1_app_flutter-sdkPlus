@@ -30,9 +30,14 @@ The only thing missing is the two model files **and** turning the decode on
 **Colab (recommended):** new notebook → Runtime → Change runtime type → **GPU**. Then:
 
 ```python
-!git clone <YOUR_REPO_URL> app && cd app
+!git clone https://github.com/akwebs/pf1_app_flutter-sdkPlus.git app
+%cd /content/app
 !pip install -r tools/requirements.txt
 ```
+
+> Use the `%cd` **magic** (not `!cd`) — a `!cd` inside a `!` cell does **not** persist to the
+> next cell, so later `!pip`/`!python tools/...` commands would run from the wrong directory
+> and fail with "No such file or directory". `%cd` changes the notebook's working dir for good.
 
 **Local:**
 
@@ -55,8 +60,16 @@ Free sources (export as **YOLOv8**):
 - **Roboflow Universe** — search *"license plate"* / *"ANPR"* (Indian-specific sets exist).
 - **Kaggle** — *"Car License Plate Detection"*, *"Indian Vehicle Number Plate"*.
 
-Put it under `tools/datasets/plate_detector/` (or anywhere) and set `path:` in
-[`tools/data/detector.yaml`](data/detector.yaml).
+If you have one or more Roboflow YOLOv8 **zips**, merge them into the dataset the
+config already expects (every class remapped to `0` = plate):
+
+```bash
+python tools/prepare_data.py --zips "tools/data/*.zip"
+```
+
+This writes `tools/datasets/plate_detector/{train,valid,test}/{images,labels}`, which
+[`tools/data/detector.yaml`](data/detector.yaml) already points at — no edits needed.
+(The current repo's two Indian-plate sets merge to ~1943/538/271.)
 
 ### 2b. Recognizer dataset (36 classes: 0-9, A-Z)
 Each training image is a **cropped plate**; each label is a **character box** with its
@@ -174,3 +187,59 @@ camera image stream and auto-fills the vehicle number on a confirmed plate. Test
 - **Confused characters (0/O, 1/I, 8/B)** → add more training samples of those; the
   `PlateFormat` regex already rejects structurally-invalid reads.
 - **Accuracy** → more/representative Indian data in Step 2 is the biggest lever.
+
+---
+
+## Appendix — Colab run sheet (copy-paste)
+
+The datasets are gitignored, so they are **not** in the clone — you upload the zips to Colab.
+Keep detector zips and the character zip in **separate folders** so each merge only sees its own.
+
+**Cell 1 — setup** (first: Runtime → Change runtime type → **GPU**)
+```python
+!git clone https://github.com/akwebs/pf1_app_flutter-sdkPlus.git app
+%cd /content/app
+!pip install -q -r tools/requirements.txt
+!mkdir -p tools/data/det tools/data/rec
+```
+
+**Cell 2 — upload the DETECTOR zips** (the two Indian-plate detection zips)
+```python
+import shutil
+from google.colab import files
+for name in files.upload():        # select both detector .zip files
+    shutil.move(name, f'tools/data/det/{name}')
+!ls tools/data/det
+```
+
+**Cell 3 — upload the CHARACTER zip** (your recognizer dataset)
+```python
+import shutil
+from google.colab import files
+for name in files.upload():        # select your character .zip
+    shutil.move(name, f'tools/data/rec/{name}')
+!ls tools/data/rec
+```
+
+**Cell 4 — build both datasets**
+```python
+!python tools/prepare_data.py --task detector   --zips "tools/data/det/*.zip"
+!python tools/prepare_data.py --task recognizer --zips "tools/data/rec/*.zip"
+```
+
+**Cell 5 — train (GPU)**
+```python
+!python tools/train.py --task detector   --epochs 100
+!python tools/train.py --task recognizer --epochs 120
+```
+
+**Cell 6 — download the two models**
+```python
+from google.colab import files
+files.download('assets/models/plate_detector.tflite')
+files.download('assets/models/plate_recognizer.tflite')
+```
+
+Then drop both files into `assets/models/` in your local repo and do **Step 6** (enable the
+Dart decode) + **Step 7** (build & test on a device).
+

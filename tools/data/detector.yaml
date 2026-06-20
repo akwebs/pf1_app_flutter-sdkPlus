@@ -7,9 +7,12 @@
 #
 # A YOLO label line is: `0 cx cy w h` (normalized 0..1), class 0 = plate.
 
-path: ./datasets/plate_detector # dataset root (override with --data path)
-train: images/train
-val: images/val
+# Merged from two Roboflow sets (indian-plate + indian-license-plate), both
+# single-class plate boxes remapped to class 0. ~1943 train / 538 val / 271 test.
+path: ../datasets/plate_detector
+train: train/images
+val: valid/images
+test: test/images
 
 names:
   0: plate

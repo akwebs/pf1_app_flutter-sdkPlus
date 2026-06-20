@@ -12,9 +12,12 @@
 # IMPORTANT: class index order below is the canonical 0-9 then A-Z. Keep your
 # dataset's class order identical, or the recognized characters will be wrong.
 
-path: ./datasets/plate_recognizer # dataset root (override with --data path)
-train: images/train
-val: images/val
+# Built by: python tools/prepare_data.py --task recognizer --zips <your-char-zip>
+# (source class order is remapped by NAME to the 0-9,A-Z order below).
+path: ../datasets/plate_recognizer
+train: train/images
+val: valid/images
+test: test/images
 
 names:
   0: "0"
