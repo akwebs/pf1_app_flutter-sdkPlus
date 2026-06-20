@@ -47,22 +47,29 @@ def _load_source_names(extract_root: Path) -> list[str]:
     raise SystemExit("Could not read class names from the dataset's data.yaml")
 
 
-def _build_class_map(task: str, extract_root: Path) -> dict[int, int]:
-    """src class index -> output class index."""
+def _build_class_map(task: str, extract_root: Path):
+    """Returns (src_idx -> output_idx map, list of skipped source class names).
+
+    Detector: empty map (every box forced to class 0).
+    Recognizer: maps each source class BY NAME to canonical 0-9/A-Z. Classes that
+    are not single characters (e.g. 'EUR', 'undefined', '39') are dropped — their
+    boxes are filtered out — rather than aborting, so messy real-world datasets
+    are still usable.
+    """
     if task == "detector":
-        # Everything is a plate; collapse to class 0 regardless of source ids.
-        return {}  # sentinel: handled as "force 0" below
+        return {}, []
     names = _load_source_names(extract_root)
     mapping: dict[int, int] = {}
+    skipped: list[str] = []
     for src_idx, raw in enumerate(names):
         key = str(raw).strip().upper()
-        if key not in CANON_INDEX:
-            raise SystemExit(
-                f"Recognizer class '{raw}' is not one of 0-9/A-Z. "
-                f"This dataset has non-character classes and can't be used as-is."
-            )
-        mapping[src_idx] = CANON_INDEX[key]
-    return mapping
+        if key in CANON_INDEX:
+            mapping[src_idx] = CANON_INDEX[key]
+        else:
+            skipped.append(str(raw))
+    if not mapping:
+        raise SystemExit("No 0-9/A-Z character classes found in this dataset.")
+    return mapping, skipped
 
 
 def _write_label(src: Path, dst: Path, task: str, class_map: dict[int, int]) -> None:
@@ -74,7 +81,10 @@ def _write_label(src: Path, dst: Path, task: str, class_map: dict[int, int]) -> 
         if task == "detector":
             parts[0] = "0"
         else:
-            parts[0] = str(class_map[int(parts[0])])
+            src_c = int(parts[0])
+            if src_c not in class_map:
+                continue  # drop boxes of non-character classes (EUR, undefined, ...)
+            parts[0] = str(class_map[src_c])
         out_lines.append(" ".join(parts))
     dst.write_text("\n".join(out_lines) + ("\n" if out_lines else ""))
 
@@ -109,7 +119,9 @@ def main() -> None:
             with zipfile.ZipFile(zp) as zf:
                 zf.extractall(tmp)
             root = Path(tmp)
-            class_map = _build_class_map(args.task, root)
+            class_map, skipped = _build_class_map(args.task, root)
+            if skipped:
+                print(f"[prepare]   dropping non-character classes: {skipped}")
             for raw_split, split in SPLIT_ALIASES.items():
                 img_dir = root / raw_split / "images"
                 lbl_dir = root / raw_split / "labels"
